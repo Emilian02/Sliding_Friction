@@ -7,66 +7,77 @@ public class PhysicsGO : MonoBehaviour
     [SerializeField] bool isGravityOn;
     [SerializeField] float velocity;
     [SerializeField] float mass;
+    [SerializeField] float frictionCoefficient = 0.5f;
     [SerializeField] float raycastLength;
+    [SerializeField] PlaneAngle inclineAngle;
 
 
     float gravity = -9.81f;
-    Vector3 moveDirection;
-    bool isGrounded;
-    bool wasGroundedLastFrame;
+    RaycastHit hit;
 
-    private void Update()
+    private void FixedUpdate()
     {
-        CheckCollisions();
-        if (isGravityOn && !isGrounded)
+        // Apply physics to calculate the new velocity
+        ApplyPhysics();
+
+        // Calculate the next position based on current velocity
+        Vector3 moveDirection = new Vector3(0, -velocity * Time.fixedDeltaTime, 0);
+        Vector3 nextPosition = transform.position + moveDirection;
+
+        // Check for collisions and adjust position if necessary
+        if (CheckCollision(nextPosition))
         {
-            ApplyGravity();
+            HandleCollision();
+        }
+
+        transform.position = nextPosition;
+
+        Debug.Log("Velocity: " + velocity + "\nPosition: " + transform.position);
+    }
+
+    private bool CheckCollision(Vector3 newPosition)
+    {
+        // Cast the ray from the new position downward
+        return Physics.Raycast(newPosition, -transform.up, out hit, raycastLength);
+    }
+
+    private void HandleCollision()
+    {
+        if (Physics.Raycast(transform.position, -transform.up, out hit, raycastLength))
+        {
+            // Move the object to the collision point plus the normal to stay on the plane
+            Vector3 projectedPosition = (hit.point + hit.normal) * raycastLength;
+            transform.position = projectedPosition;
+
+            // Align the rotation of the object to match the plane’s angle
+            Quaternion targetRotation = Quaternion.FromToRotation(Vector3.up, hit.normal);
+            transform.rotation = targetRotation;
+
+            // Adjust velocity based on friction and collision normal
+            Vector3 slideDirection = Vector3.ProjectOnPlane(transform.forward, hit.normal).normalized;
+            velocity = Vector3.Dot(slideDirection, transform.forward) * velocity;
         }
     }
 
-    private void ApplyGravity()
+    private void ApplyPhysics()
     {
-        // Calculate gravity force and update velocity
-        float gravityForce = gravity * mass;
-        velocity += gravityForce * Time.deltaTime;
+        // Convert incline angle to radians
+        float angleRad = inclineAngle.GetZAxisRotationAngle() * Mathf.Deg2Rad;
 
-        // Update position based on velocity
-        moveDirection = new Vector3(0, velocity * Time.deltaTime, 0);
-        transform.position += moveDirection;
-    }
+        // Calculate forces
+        float gravitationalForce = mass * gravity;
+        float gravitationalForceAlongPlane = gravitationalForce * Mathf.Sin(angleRad);
+        float normalForce = gravitationalForce * Mathf.Cos(angleRad);
+        float frictionForce = frictionCoefficient * normalForce;
 
-    private void CheckCollisions()
-    {
-        RaycastHit hit;
-        // Cast the ray from the current position downward
-        if (Physics.Raycast(transform.position, Vector3.down, out hit, raycastLength))
-        {
-            // Check if the ray hit something
-            if (hit.collider != null)
-            {
-                isGrounded = true;
-
-
-                // Adjust position only if it was not grounded last frame
-                if (!wasGroundedLastFrame)
-                {
-                    // Adjust position to be just above the surface
-                    transform.position = new Vector3(transform.position.x, hit.point.y + raycastLength, transform.position.z);
-                    velocity = 0.0f;
-                }
-            }
-        }
-        else
-        {
-            isGrounded = false;
-        }
-
-        // Update the grounded state
-        wasGroundedLastFrame = isGrounded;
+        // Calculate net force and update velocity
+        float netForce = gravitationalForceAlongPlane - frictionForce;
+        float acceleration = netForce / mass;
+        velocity += acceleration * Time.deltaTime;
     }
 
     private void OnDrawGizmos()
     {
-        Gizmos.DrawRay(transform.position, Vector3.down * raycastLength);
+        Gizmos.DrawRay(transform.position, -transform.up * raycastLength);
     }
 }
